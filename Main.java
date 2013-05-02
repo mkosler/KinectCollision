@@ -9,14 +9,20 @@ public class Main extends PApplet
 {
   private SimpleOpenNI _kinect;
   private int _userID;
+  private int[] _thresholdMap;
+  private int[] _boundingBox;
 
   public void setup()
   {
     _kinect = new SimpleOpenNI(this);
     size(640, 480);
+    _thresholdMap = new int[width * height];
 
     _kinect.enableDepth();
     _kinect.enableUser(SimpleOpenNI.SKEL_PROFILE_ALL);
+    _kinect.enableGesture();
+
+    _kinect.addGesture("Wave");
   }
 
   public void draw()
@@ -53,23 +59,33 @@ public class Main extends PApplet
           rightHand.z + bound,
         };
 
-        float[] leftThreshold = {
-          leftHand.z - bound,
-          leftHand.z + bound,
-        };
+        for (int i = 0; i < userMap.length; i++) {
+          if (userMap[i] != 0 &&
+              rightThreshold[0] < depthMap[i] && depthMap[i] < rightThreshold[1]) {
+            _thresholdMap[i] = 1;
+          } else {
+            _thresholdMap[i] = 0;
+          }
+        }
 
         loadPixels();
         for (int i = 0; i < pixels.length; i++) {
-          if (userMap[i] != 0 &&
-              ((rightThreshold[0] < depthMap[i] && depthMap[i] < rightThreshold[1]) ||
-               (leftThreshold[0] < depthMap[i] && depthMap[i] < leftThreshold[1]))) {
-            pixels[i] = color(
-                0,
-                255 * relativeDepthData[i],
-                255 * (1.0f - relativeDepthData[i]));
+          if (_thresholdMap[i] == 1) {
+            pixels[i] = color(0, 255 * relativeDepthData[i], 255 * (1.0f - relativeDepthData[i]));
           }
         }
         updatePixels();
+
+        if (_boundingBox != null) {
+          PVector convertedRightHand = new PVector();
+          _kinect.convertRealWorldToProjective(rightHand, convertedRightHand);
+
+          noFill();
+          stroke(255, 0, 0);
+          int bbWidth = _boundingBox[1] - _boundingBox[0],
+              bbHeight = _boundingBox[3] - _boundingBox[2];
+          rect(convertedRightHand.x - (bbWidth / 2), convertedRightHand.y - (bbHeight / 2), bbWidth, bbHeight);
+        }
       }
     }
   }
@@ -139,6 +155,30 @@ public class Main extends PApplet
     System.out.println("Started pose for user");
     _kinect.stopPoseDetection(uid);
     _kinect.requestCalibrationSkeleton(uid, true);
+  }
+
+  public void onRecognizeGesture(String gesture, PVector idPosition, PVector endPosition)
+  {
+    System.out.printf("Recognized %s: [ID] %s [END] %s\n", gesture, idPosition, endPosition);
+    _kinect.removeGesture("Wave");
+
+    _boundingBox = new int[4];
+    _boundingBox[0] = width;
+    _boundingBox[1] = 0;
+    _boundingBox[2] = height;
+    _boundingBox[3] = 0;
+
+    for (int i = 0; i < _thresholdMap.length; i++) {
+      int row = i / width;
+      int column = i % width;
+
+      if (_thresholdMap[i] == 1) {
+        if (column < _boundingBox[0]) _boundingBox[0] = column;
+        if (column > _boundingBox[1]) _boundingBox[1] = column;
+        if (row < _boundingBox[2]) _boundingBox[2] = row;
+        if (row > _boundingBox[3]) _boundingBox[3] = row;
+      }
+    }
   }
 
   public static void main(String args[])
