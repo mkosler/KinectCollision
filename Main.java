@@ -26,36 +26,50 @@ public class Main extends PApplet
 
     if (_kinect.getNumberOfUsers() > 0) {
       int[] userMap = _kinect.getUsersPixels(SimpleOpenNI.USERS_ALL);
+      int[] depthMap = _kinect.depthMap();
+
       float[] relativeDepthData = getRelativeDepthData(
           userMap,
-          _kinect.depthImage().pixels,
+          depthMap,
           width * height);
 
-      loadPixels();
-      for (int i = 0; i < width * height; i++) {
-        if (userMap[i] != 0) {
-          pixels[i] = color(
-              0,
-              255 * relativeDepthData[i],
-              255 * (1.0f - relativeDepthData[i]));
-        }
-      }
-      updatePixels();
-
       if (_kinect.isTrackingSkeleton(1)) {
-        stroke(0);
-        strokeWeight(5);
-
-        _kinect.drawLimb(
+        PVector rightHand = new PVector();
+        _kinect.getJointPositionSkeleton(
             1,
-            SimpleOpenNI.SKEL_LEFT_ELBOW,
-            SimpleOpenNI.SKEL_LEFT_HAND);
+            SimpleOpenNI.SKEL_LEFT_HAND,
+            rightHand);
 
-        noStroke();
-        fill(255, 0, 0);
+        PVector leftHand = new PVector();
+        _kinect.getJointPositionSkeleton(
+            1,
+            SimpleOpenNI.SKEL_RIGHT_HAND,
+            leftHand);
 
-        drawJoint(1, SimpleOpenNI.SKEL_LEFT_ELBOW);
-        drawJoint(1, SimpleOpenNI.SKEL_LEFT_HAND);
+        int bound = 75;
+
+        float[] rightThreshold = {
+          rightHand.z - bound,
+          rightHand.z + bound,
+        };
+
+        float[] leftThreshold = {
+          leftHand.z - bound,
+          leftHand.z + bound,
+        };
+
+        loadPixels();
+        for (int i = 0; i < pixels.length; i++) {
+          if (userMap[i] != 0 &&
+              ((rightThreshold[0] < depthMap[i] && depthMap[i] < rightThreshold[1]) ||
+               (leftThreshold[0] < depthMap[i] && depthMap[i] < leftThreshold[1]))) {
+            pixels[i] = color(
+                0,
+                255 * relativeDepthData[i],
+                255 * (1.0f - relativeDepthData[i]));
+          }
+        }
+        updatePixels();
       }
     }
   }
@@ -66,7 +80,7 @@ public class Main extends PApplet
           maximumDepth = Float.MIN_VALUE;
     for (int i = 0; i < size; i++) {
       if (userMap[i] != 0) {
-        float v = depthMap[i] & 0xFF;
+        float v = depthMap[i];
         if (v < minimumDepth) {
           minimumDepth = v;
         }
@@ -80,7 +94,7 @@ public class Main extends PApplet
 
     for (int i = 0; i < size; i++) {
       if (userMap[i] != 0) {
-        float v = depthMap[i] & 0xFF;
+        float v = depthMap[i];
         data[i] = (v - minimumDepth) / (maximumDepth - minimumDepth);
       } else {
         data[i] = 0.0f;
@@ -95,9 +109,11 @@ public class Main extends PApplet
     PVector joint = new PVector();
     float confidence = _kinect.getJointPositionSkeleton(uid, jid, joint);
     if (confidence > 0.5) {
+      System.out.printf("Z value: %.2f\n", joint.z);
+
       PVector convertedJoint = new PVector();
       _kinect.convertRealWorldToProjective(joint, convertedJoint);
-      ellipse(convertedJoint.x, convertedJoint.y, 5, 5);
+      ellipse(convertedJoint.x, convertedJoint.y, 10, 10);
     }
   }
 
