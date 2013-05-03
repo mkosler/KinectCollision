@@ -1,4 +1,5 @@
-import java.util.Vector;
+import java.util.List;
+import java.util.ArrayList;
 import processing.core.PApplet;
 import processing.core.PImage;
 import processing.core.PVector;
@@ -46,12 +47,6 @@ public class Main extends PApplet
             SimpleOpenNI.SKEL_LEFT_HAND,
             rightHand);
 
-        PVector leftHand = new PVector();
-        _kinect.getJointPositionSkeleton(
-            1,
-            SimpleOpenNI.SKEL_RIGHT_HAND,
-            leftHand);
-
         int bound = 75;
 
         float[] rightThreshold = {
@@ -70,24 +65,120 @@ public class Main extends PApplet
 
         loadPixels();
         for (int i = 0; i < pixels.length; i++) {
-          if (_thresholdMap[i] == 1) {
-            pixels[i] = color(0, 255 * relativeDepthData[i], 255 * (1.0f - relativeDepthData[i]));
-          }
+          float c = 255 * relativeDepthData[i];
+          pixels[i] = color(c, c, c);
         }
         updatePixels();
+
+        int[] bodyBB = getBodyBoundingBox(30);
+
+        stroke(255, 0, 0);
+        noFill();
+
+        rect(bodyBB[0], bodyBB[2], bodyBB[1] - bodyBB[0], bodyBB[3] - bodyBB[2]);
 
         if (_boundingBox != null) {
           PVector convertedRightHand = new PVector();
           _kinect.convertRealWorldToProjective(rightHand, convertedRightHand);
 
-          noFill();
-          stroke(255, 0, 0);
           int bbWidth = _boundingBox[1] - _boundingBox[0],
               bbHeight = _boundingBox[3] - _boundingBox[2];
+
+          int[] adjustedBoundingBox = {
+            (int) convertedRightHand.x - (bbWidth / 2),
+            (int) convertedRightHand.x + (bbWidth / 2),
+            (int) convertedRightHand.y - (bbHeight / 2),
+            (int) convertedRightHand.y + (bbHeight / 2),
+          };
+
+          if (collision(bodyBB, adjustedBoundingBox)) {
+            List<Integer> edges = findEdges(depthMap, userMap, adjustedBoundingBox, 25);
+            if (edges.size() < 10) {
+              stroke(0, 255, 0);
+            }
+
+            loadPixels();
+            for (int edge : edges) {
+              pixels[edge] = color(255, 0, 0);
+            }
+            updatePixels();
+          }
+
           rect(convertedRightHand.x - (bbWidth / 2), convertedRightHand.y - (bbHeight / 2), bbWidth, bbHeight);
         }
       }
     }
+  }
+
+  public boolean collision(int[] a, int[] b)
+  {
+    return a[0] < b[1] && a[1] > b[0] && a[2] < b[3] && a[3] > b[2];
+  }
+
+  public List<Integer> findEdges(int[] depthMap, int[] thresholdMap, int[] boundingBox, int edgeThreshold)
+  {
+    List<Integer> edges = new ArrayList<Integer>();
+    for (int r = boundingBox[2]; r < boundingBox[3]; r++) {
+      for (int c = boundingBox[0] + 1; c < boundingBox[1]; c++) {
+        int i = r * width + c;
+
+        try {
+          if (thresholdMap[i - 1] == 1 && thresholdMap[i] == 1) {
+            int pdepth = depthMap[i - 1], cdepth = depthMap[i];
+            if (Math.abs(cdepth - pdepth) > edgeThreshold) {
+              edges.add(i);
+            }
+          }
+        } catch (ArrayIndexOutOfBoundsException e) {
+        }
+      }
+    }
+    return edges;
+  }
+
+  public int[] getBodyBoundingBox(int buffer)
+  {
+    PVector leftShoudler = new PVector(),
+            convertedLeftShoulder = new PVector(),
+            rightShoulder = new PVector(),
+            convertedRightShoulder = new PVector(),
+            head = new PVector(),
+            convertedHead = new PVector(),
+            leftFoot = new PVector(),
+            convertedLeftFoot = new PVector();
+
+    _kinect.getJointPositionSkeleton(
+        1,
+        SimpleOpenNI.SKEL_RIGHT_SHOULDER,
+        leftShoudler);
+    _kinect.convertRealWorldToProjective(leftShoudler, convertedLeftShoulder);
+
+    _kinect.getJointPositionSkeleton(
+        1,
+        SimpleOpenNI.SKEL_LEFT_SHOULDER,
+        rightShoulder);
+    _kinect.convertRealWorldToProjective(rightShoulder, convertedRightShoulder);
+
+    _kinect.getJointPositionSkeleton(
+        1,
+        SimpleOpenNI.SKEL_HEAD,
+        head);
+    _kinect.convertRealWorldToProjective(head, convertedHead);
+
+    _kinect.getJointPositionSkeleton(
+        1,
+        SimpleOpenNI.SKEL_LEFT_FOOT,
+        leftFoot);
+    _kinect.convertRealWorldToProjective(leftFoot, convertedLeftFoot);
+
+    int[] boundingBox = {
+      (int) convertedRightShoulder.x - buffer,
+      (int) convertedLeftShoulder.x + buffer,
+      (int) convertedHead.y - buffer,
+      (int) convertedLeftFoot.y + buffer,
+    };
+
+    return boundingBox;
   }
 
   public float[] getRelativeDepthData(int[] userMap, int[] depthMap, int size)
